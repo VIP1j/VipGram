@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VipGram</title>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-database-compat.js"></script>
+    <style>
+        body { background: #0b141a; color: white; font-family: Arial, sans-serif; display: flex; justify-content: center; margin: 0; }
+        .container { width: 100%; max-width: 450px; background: #111b21; height: 100vh; display: flex; flex-direction: column; }
+        header { background: #202c33; padding: 15px; text-align: center; color: #00a884; font-weight: bold; font-size: 20px; border-bottom: 1px solid #333; }
+        .screen { padding: 20px; display: flex; flex-direction: column; flex: 1; }
+        input { background: #2a3942; border: none; padding: 12px; border-radius: 8px; color: white; margin-bottom: 10px; width: 100%; box-sizing: border-box; }
+        button { background: #00a884; color: white; border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%; }
+        #chat-window { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+        .msg { background: #202c33; padding: 10px; border-radius: 10px; width: fit-content; max-width: 80%; }
+        .msg.my { background: #005c4b; align-self: flex-end; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>VipGram</header>
+
+    <div id="auth-screen" class="screen">
+        <h2 style="text-align: center;">Вход</h2>
+        <input type="text" id="nick" placeholder="Ваш ник">
+        <input type="tel" id="phone" value="+380">
+        
+        <div id="recaptcha-container"></div>
+        
+        <button id="send-btn" onclick="sendOTP()">Получить СМС код</button>
+
+        <div id="otp-area" style="display:none; margin-top: 20px;">
+            <input type="text" id="otp" placeholder="Код из СМС">
+            <button onclick="verifyOTP()" style="background: #25d366;">Войти</button>
+        </div>
+    </div>
+
+    <div id="main-screen" class="screen" style="display:none;">
+        <div id="status-bar" style="font-size: 12px; color: #aaa; margin-bottom: 5px;">Канал: VIPnews</div>
+        <div id="chat-window"></div>
+        <div style="display: flex; gap: 5px; padding-top: 10px;">
+            <input type="text" id="m-input" placeholder="Сообщение..." style="margin:0;">
+            <button onclick="sendMsg()" style="width: 60px;">➜</button>
+        </div>
+        <button id="lock-btn" onclick="toggleLock()" style="display:none; margin-top:10px; background:#ffd700; color:black; font-size:11px;">Выключить чат для всех</button>
+    </div>
+</div>
+
+<script>
+    // Твои данные Firebase
+    const firebaseConfig = {
+        apiKey: "AIzaSyDjqptfyB-N-yxtxPc-EN62npGbbWKJKw",
+        authDomain: "project-1256061030470726253.firebaseapp.com",
+        databaseURL: "https://project-1256061030470726253-default-rtdb.firebaseio.com",
+        projectId: "project-1256061030470726253",
+        storageBucket: "project-1256061030470726253.firebasestorage.app",
+        messagingSenderId: "280204421260",
+        appId: "1:280204421260:web:cfcd74e7e619e5d77ef3a9"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.database();
+    const myAdmin = "+380664117928";
+
+    // Инициализация капчи сразу при загрузке
+    window.onload = function() {
+        window.recaptchaVerifier = new firebase.auth.RecaptchaVerifier('recaptcha-container', {
+            'size': 'normal' // Сделал видимой, чтобы ты точно видел, что она работает
+        });
+    };
+
+    function sendOTP() {
+        const phoneNumber = document.getElementById('phone').value;
+        const nickname = document.getElementById('nick').value;
+
+        if(!nickname) { alert("Введи ник!"); return; }
+
+        auth.signInWithPhoneNumber(phoneNumber, window.recaptchaVerifier)
+            .then(res => {
+                window.confirmationResult = res;
+                document.getElementById('otp-area').style.display = 'block';
+                document.getElementById('send-btn').style.display = 'none';
+                alert("Код отправлен!");
+            }).catch(err => {
+                alert("Ошибка! Проверь, добавлен ли домен в Firebase: " + err.message);
+                console.error(err);
+            });
+    }
+
+    function verifyOTP() {
+        const code = document.getElementById('otp').value;
+        confirmationResult.confirm(code).then(result => {
+            const user = result.user;
+            db.ref('users/' + user.phoneNumber.replace('+', '')).update({
+                nick: document.getElementById('nick').value
+            });
+            startApp(user);
+        }).catch(err => alert("Неверный код!"));
+    }
+
+    function startApp(user) {
+        document.getElementById('auth-screen').style.display = 'none';
+        document.getElementById('main-screen').style.display = 'flex';
+        
+        if(user.phoneNumber === myAdmin) {
+            document.getElementById('lock-btn').style.display = 'block';
+        }
+
+        // Загрузка сообщений
+        db.ref('vipnews').limitToLast(50).on('value', snap => {
+            const win = document.getElementById('chat-window');
+            win.innerHTML = '';
+            snap.forEach(child => {
+                const m = child.val();
+                const isMe = m.phone === user.phoneNumber;
+                win.innerHTML += `<div class="msg ${isMe ? 'my' : ''}"><b>${m.nick}</b><br>${m.txt}</div>`;
+            });
+            win.scrollTop = win.scrollHeight;
+        });
+
+        // Проверка блокировки чата
+        db.ref('settings/locked').on('value', s => {
+            const isLocked = s.val();
+            const input = document.getElementById('m-input');
+            if(isLocked && user.phoneNumber !== myAdmin) {
+                input.disabled = true;
+                input.placeholder = "Чат закрыт админом";
+            } else {
+                input.disabled = false;
+                input.placeholder = "Сообщение...";
+            }
+        });
+    }
+
+    function sendMsg() {
+        const text = document.getElementById('m-input').value;
+        if(!text) return;
+        const user = auth.currentUser;
+        db.ref('users/' + user.phoneNumber.replace('+', '') + '/nick').get().then(s => {
+            db.ref('vipnews').push({
+                nick: s.val() || "Аноним",
+                phone: user.phoneNumber,
+                txt: text
+            });
+        });
+        document.getElementById('m-input').value = '';
+    }
+
+    function toggleLock() {
+        db.ref('settings/locked').get().then(s => {
+            db.ref('settings/locked').set(!s.val());
+        });
+    }
+</script>
+
+</body>
+</html>
